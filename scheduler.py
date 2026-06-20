@@ -1,6 +1,6 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.date import DateTrigger
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from database import db
 from telegram import Bot
 import asyncio
@@ -18,14 +18,23 @@ class MessageScheduler:
     def _get_scheduler(self):
         """Return the scheduler, starting it inside the running loop if needed."""
         if self._scheduler is None:
-            self._scheduler = AsyncIOScheduler()
+            # IMPORTANT: timezone="UTC" is explicit and mandatory here.
+            # All schedule_time values throughout this codebase (handlers.py,
+            # database.py) are naive UTC datetimes. Without an explicit
+            # timezone, AsyncIOScheduler falls back to tzlocal.get_localzone(),
+            # which resolves against the container's /etc/localtime — and
+            # python:3.11-slim does NOT ship the tzdata package, so that
+            # resolution is undefined/inconsistent across environments
+            # (worked locally, silently wrong on a different host). Pinning
+            # to UTC removes the dependency on container tzdata entirely.
+            self._scheduler = AsyncIOScheduler(timezone="UTC")
             try:
                 loop = asyncio.get_running_loop()
                 self._scheduler._eventloop = loop  # pin to PTB's loop
             except RuntimeError:
                 pass  # no running loop yet; APScheduler will find it on first fire
             self._scheduler.start()
-            logger.info("APScheduler started inside running event loop.")
+            logger.info("APScheduler started inside running event loop (timezone=UTC).")
         return self._scheduler
 
     def schedule_message(self, msg_id, target_type, target_id, message_text, schedule_time,
