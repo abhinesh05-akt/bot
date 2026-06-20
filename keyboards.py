@@ -42,6 +42,7 @@ def get_owner_panel():
         [InlineKeyboardButton("📋 Channel List", callback_data="channel_list")],
         [InlineKeyboardButton("👥 Admin List", callback_data="admin_list")],
         [InlineKeyboardButton("📝 Post Update", callback_data="post_update")],
+        [InlineKeyboardButton("🛡️ Moderation Panel", callback_data="moderation_panel")],
         [InlineKeyboardButton("🔙 Back to Menu", callback_data="main_menu")]
     ]
     return InlineKeyboardMarkup(buttons)
@@ -186,6 +187,7 @@ def get_scheduled_list_keyboard(messages):
 def get_scheduled_detail_keyboard(msg_id):
     buttons = [
         [InlineKeyboardButton("🗑️ Delete Schedule", callback_data=f"del_sched_{msg_id}")],
+        [InlineKeyboardButton("🚨 Report Copyright Violation", callback_data=f"report_start_{msg_id}")],
         [InlineKeyboardButton("🔙 Back", callback_data="my_scheduled")]
     ]
     return InlineKeyboardMarkup(buttons)
@@ -223,6 +225,44 @@ def get_ai_limit_keybord():
         [InlineKeyboardButton("👤 User AI Limit",callback_data="set_user_ai_limit")],
         [InlineKeyboardButton("🛡 Admin AI Limit",callback_data="set_admin_ai_limit")],
         [InlineKeyboardButton("🔙 Back", callback_data="owner_panel")]
+    ]
+    return InlineKeyboardMarkup(buttons)
+
+# ========== COPYRIGHT PROTECTION SYSTEM ==========
+
+def get_copyright_warning_keyboard():
+    buttons = [
+        [InlineKeyboardButton("✅ I Agree / Maine Samjha", callback_data="copyright_ack")],
+        [InlineKeyboardButton("❌ Cancel", callback_data="main_menu")]
+    ]
+    return InlineKeyboardMarkup(buttons)
+
+def get_report_button_keyboard(scheduled_message_id):
+    """Attached to a scheduled-content detail view so any user can report it."""
+    buttons = [
+        [InlineKeyboardButton("🚨 Report Copyright Violation", callback_data=f"report_start_{scheduled_message_id}")]
+    ]
+    return InlineKeyboardMarkup(buttons)
+
+def get_moderation_panel_keyboard():
+    buttons = [
+        [InlineKeyboardButton("📋 View Reports", callback_data="mod_view_reports")],
+        [InlineKeyboardButton("⚠️ View Strikes", callback_data="mod_view_strikes")],
+        [InlineKeyboardButton("📜 Audit Log", callback_data="mod_audit_log")],
+        [InlineKeyboardButton("🚫 Ban User", callback_data="mod_ban_user")],
+        [InlineKeyboardButton("✅ Unban User", callback_data="mod_unban_user")],
+        [InlineKeyboardButton("♻️ Reset Strikes", callback_data="mod_reset_strikes")],
+        [InlineKeyboardButton("🔍 View User History", callback_data="mod_user_history")],
+        [InlineKeyboardButton("🔙 Back", callback_data="owner_panel")]
+    ]
+    return InlineKeyboardMarkup(buttons)
+
+def get_report_detail_keyboard(report_id, reported_user_id):
+    buttons = [
+        [InlineKeyboardButton("🗑️ Remove Content", callback_data=f"mod_remove_content_{report_id}")],
+        [InlineKeyboardButton("⚠️ Issue Strike", callback_data=f"mod_strike_{reported_user_id}_{report_id}")],
+        [InlineKeyboardButton("✅ Dismiss Report", callback_data=f"mod_dismiss_{report_id}")],
+        [InlineKeyboardButton("🔙 Back", callback_data="mod_view_reports")]
     ]
     return InlineKeyboardMarkup(buttons)
 

@@ -17,7 +17,9 @@ USER_CHANNEL_ADD = 999
  SCHEDULE_CAPTION, QR_INPUT, ADMIN_ADD, CHANNEL_ADD, AI_LIMIT, 
  UPDATE_TITLE, UPDATE_MSG, SCHEDULE_POLL_Q, SCHEDULE_POLL_OPTS,
  SCHEDULE_CONTACT, SCHEDULE_LOCATION,
- SET_DEFAULT_AI_LIMIT, SET_USER_AI_LIMIT, UPDATE_INVITE_LINK, SCHEDULE_DATE, SCHEDULE_AMPM) = range(21)
+ SET_DEFAULT_AI_LIMIT, SET_USER_AI_LIMIT, UPDATE_INVITE_LINK, SCHEDULE_DATE, SCHEDULE_AMPM,
+ REPORT_REASON, MOD_BAN_INPUT, MOD_UNBAN_INPUT, MOD_RESET_STRIKES_INPUT,
+ MOD_USER_HISTORY_INPUT) = range(26)
 
 # ========== HELPER FUNCTIONS ==========
 
@@ -134,6 +136,103 @@ def is_owner(user_id):
 def is_admin(user_id):
     return db.get_admin(user_id) is not None or is_owner(user_id)
 
+# ========== COPYRIGHT PROTECTION SYSTEM — HELPERS ==========
+
+COPYRIGHT_WARNING_TEXT = (
+    "⚠️ Copyright Notice: Uploading, scheduling, or distributing copyrighted "
+    "content without permission is prohibited. Examples include Pocket FM "
+    "content, movies, TV shows, audiobooks, music, and other protected media. "
+    "Users who violate this policy may be suspended or permanently banned."
+)
+
+async def check_ban_and_reply(update, context, user_id):
+    """Call at the top of any command/callback. Returns True if the user is
+    BANNED and a rejection message has been sent (caller must return immediately).
+    Does not check restriction — restriction only blocks scheduling, not the
+    whole bot, so it's checked separately at the scheduling entry point."""
+    if db.is_user_banned(user_id):
+        text = "You are permanently banned from using this bot."
+        try:
+            if update.callback_query:
+                await update.callback_query.answer(text, show_alert=True)
+            elif update.message:
+                await update.message.reply_text(text)
+        except Exception:
+            pass
+        return True
+    return False
+
+async def check_restriction_and_reply(update, context, user_id):
+    """Call only at scheduling entry points. Returns True if user is currently
+    restricted and a rejection message has been sent."""
+    restricted_until = db.is_user_restricted(user_id)
+    if restricted_until:
+        until_str = restricted_until.strftime("%d-%m-%Y %H:%M UTC")
+        text = (
+            "Your scheduling privileges have been temporarily restricted "
+            f"due to repeated copyright violations.\n\nRestricted until: {until_str}"
+        )
+        if update.callback_query:
+            await update.callback_query.answer(text, show_alert=True)
+        elif update.message:
+            await update.message.reply_text(text)
+        return True
+    return False
+
+async def notify_owner_admins_new_media(context, user, media_type, schedule_time_utc, upload_dt):
+    """Sends the 'New Scheduled Media' notification to the owner and all admins."""
+    username = f"@{user.username}" if user.username else "N/A"
+    full_name = " ".join(filter(None, [user.first_name, user.last_name]))
+    text = (
+        "🆕 New Scheduled Media\n\n"
+        f"User ID: {user.id}\n"
+        f"Username: {username}\n"
+        f"Full Name: {full_name or 'N/A'}\n"
+        f"Media Type: {media_type.title()}\n"
+        f"Scheduled Time: {schedule_time_utc.strftime('%Y-%m-%d %H:%M')}\n"
+        f"Uploaded At: {upload_dt.strftime('%Y-%m-%d %H:%M')}"
+    )
+    recipients = {Config.OWNER_ID}
+    for a in db.get_all_admins():
+        recipients.add(a["user_id"])
+    for rid in recipients:
+        try:
+            await context.bot.send_message(chat_id=rid, text=text)
+        except Exception as e:
+            print(f"Failed to notify {rid} of new media: {e}")
+
+async def apply_strike(context, user_id, reason, added_by):
+    """Adds a strike and applies the corresponding consequence
+    (warning / restriction / ban) per the 3-strike system. Logs to audit_log
+    and notifies the user. Returns the new strike count."""
+    count = db.add_strike(user_id, reason, added_by)
+
+    if count == 1:
+        db.add_audit_log("warning", added_by, user_id, reason)
+        msg = "Warning: A copyright violation has been recorded on your account."
+
+    elif count == 2:
+        until = datetime.utcnow() + timedelta(days=Config.STRIKE_RESTRICTION_DAYS)
+        db.set_user_restricted_until(user_id, until)
+        db.add_audit_log("restriction", added_by, user_id,
+                          f"{reason} | restricted until {until.isoformat()}")
+        msg = (
+            "Your scheduling privileges have been temporarily restricted "
+            "due to repeated copyright violations."
+        )
+
+    else:  # 3rd strike and beyond
+        db.set_user_banned(user_id, True)
+        db.add_audit_log("ban", added_by, user_id, reason)
+        msg = "Your account has been permanently banned due to repeated copyright violations."
+
+    try:
+        await context.bot.send_message(chat_id=user_id, text=msg)
+    except Exception as e:
+        print(f"Failed to notify user {user_id} of strike: {e}")
+
+    return count
+
 # ========== START COMMAND ==========
     
 async def start(update, context):
@@ -141,6 +240,9 @@ async def start(update, context):
     user = update.effective_user
 
     await check_user(update, context)
+
+    if await check_ban_and_reply(update, context, user.id):
+        return
 
     if not await ensure_joined(
         update,
@@ -164,6 +266,9 @@ async def start(update, context):
 # ========== SIDE MENU COMMAND ==========
 async def side_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    if db.is_user_banned(user.id):
+        await update.message.reply_text("You are permanently banned from using this bot.")
+        return
     await check_user(update, context)
 
     text = "**Side Menu**\n\nQuick access to all features:"
@@ -172,6 +277,9 @@ async def side_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ========== HELP COMMAND ==========
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    if db.is_user_banned(user.id):
+        await update.message.reply_text("You are permanently banned from using this bot.")
+        return
     await check_user(update, context)
 
     text = "**Help Center**\n\nSelect a topic to learn more:"
@@ -187,6 +295,15 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         await query.answer()
     except Exception:
+        return
+
+    # Banned users are denied all bot features. query.answer() was already
+    # called above, so we can't call it again — send via message instead.
+    if db.is_user_banned(user_id):
+        try:
+            await query.message.reply_text("You are permanently banned from using this bot.")
+        except Exception:
+            pass
         return
 
     SKIP_JOIN_CHECK = {
@@ -246,6 +363,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ===== MEDIA TYPE SELECTION =====
     elif data.startswith("media_"):
         media_type = data.replace("media_", "")
+
+        # Restriction check: strike-2 users can't schedule anything new
+        # (but can still use AI chat, QR, etc. — restriction is scheduling-only).
+        if await check_restriction_and_reply(update, context, user_id):
+            return
+
         context.user_data["sched_media_type"] = media_type if media_type != "text" else None
 
         if media_type == "text":
@@ -272,19 +395,48 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown"
             )
 
+        elif media_type in Config.COPYRIGHT_RELEVANT_MEDIA_TYPES:
+            # Audio/Video/Document/Photo/Animation/Voice/VideoNote — copyright
+            # warning required before bot accepts the file. Shown every time
+            # (not just once-per-user) so a banned-then-unbanned user can't
+            # permanently skip it once acknowledged in the past.
+            context.user_data["pending_media_type"] = media_type
+            context.user_data["state"] = "copyright_gate"
+            await query.edit_message_text(
+                COPYRIGHT_WARNING_TEXT,
+                reply_markup=get_copyright_warning_keyboard()
+            )
+
         else:
-            # Photo, Video, Document, Audio, Voice, VideoNote, Animation, Sticker
-            media_names = {
-                "photo": "Photo", "video": "Video", "document": "Document",
-                "audio": "Audio", "voice": "Voice", "video_note": "Video Note",
-                "animation": "Animation", "sticker": "Sticker"
-            }
+            # Sticker — not copyright-gated (sticker-pack IP is a separate question)
+            media_names = {"sticker": "Sticker"}
             context.user_data["state"] = SCHEDULE_MEDIA
             await query.edit_message_text(
                 f"{media_names.get(media_type, media_type)} **bhejein** (forward ya upload karein):\n\n"
                 f"Note: Bot ko us channel/group mein admin hona chahiye agar wahan bhejna hai.",
                 parse_mode="Markdown"
             )
+
+    # ===== COPYRIGHT WARNING ACKNOWLEDGMENT =====
+    elif data == "copyright_ack":
+        media_type = context.user_data.get("pending_media_type")
+        if not media_type:
+            await query.edit_message_text("**Session expired. /menu se dobara try karein.**", parse_mode="Markdown")
+            return
+        db.set_copyright_warning_acknowledged(user_id)
+        context.user_data["sched_media_type"] = media_type
+        media_names = {
+            "photo": "Photo", "video": "Video", "document": "Document",
+            "audio": "Audio", "voice": "Voice", "video_note": "Video Note",
+            "animation": "Animation"
+        }
+        context.user_data["state"] = SCHEDULE_MEDIA
+        await query.edit_message_text(
+            f"{media_names.get(media_type, media_type)} **bhejein** (forward ya upload karein):\n\n"
+            f"Note: Bot ko us channel/group mein admin hona chahiye agar wahan bhejna hai.",
+            parse_mode="Markdown"
+        )
+
 
     # ===== QR CODE =====
     elif data == "qr_code":
@@ -706,6 +858,163 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "close":
         await query.delete_message()
 
+    # ===== COPYRIGHT REPORT (inline button) =====
+    elif data.startswith("report_start_"):
+        scheduled_message_id = int(data.replace("report_start_", ""))
+        context.user_data["report_target_id"] = scheduled_message_id
+        context.user_data["state"] = REPORT_REASON
+        await query.edit_message_text(
+            "🚨 **Report Copyright Violation**\n\n"
+            "Reason bhejein (kya copyrighted content hai, kis show/movie/audiobook ka):",
+            parse_mode="Markdown"
+        )
+
+    # ===== MODERATION PANEL (owner/admin only) =====
+    elif data == "moderation_panel":
+        if not is_admin(user_id):
+            await query.answer("Sirf admin/owner access kar sakta hai!", show_alert=True)
+            return
+        await query.edit_message_text("🛡️ **Moderation Panel**", reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown")
+
+    elif data == "mod_view_reports":
+        if not is_admin(user_id):
+            return
+        reports = db.get_all_reports()
+        if not reports:
+            await query.edit_message_text("**Koi report nahi hai.**", reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown")
+        else:
+            text = "**🚨 Copyright Reports** (latest 15)\n\n"
+            for r in reports[:15]:
+                text += (
+                    f"`#{r['id']}` Status: {r['status']}\n"
+                    f"Reported: `{r.get('reported_user_id', 'N/A')}` | Schedule: `{r.get('scheduled_message_id', 'N/A')}`\n"
+                    f"Reason: {r.get('reason', '')[:60]}\n\n"
+                )
+            buttons = [[InlineKeyboardButton(f"📂 Report #{r['id']}", callback_data=f"mod_report_detail_{r['id']}")] for r in reports[:15]]
+            buttons.append([InlineKeyboardButton("🔙 Back", callback_data="moderation_panel")])
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode="Markdown")
+
+    elif data.startswith("mod_report_detail_"):
+        if not is_admin(user_id):
+            return
+        report_id = int(data.replace("mod_report_detail_", ""))
+        report = db.get_report(report_id)
+        if not report:
+            await query.edit_message_text("**Report nahi mila.**", reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown")
+        else:
+            text = (
+                f"**📂 Report #{report_id}**\n\n"
+                f"Reported User: `{report.get('reported_user_id', 'N/A')}`\n"
+                f"Scheduled Message ID: `{report.get('scheduled_message_id', 'N/A')}`\n"
+                f"Reporter ID: `{report.get('reporter_id', 'N/A')}`\n"
+                f"Reason: {report.get('reason', '')}\n"
+                f"Status: {report.get('status', 'open')}\n"
+                f"Filed: {report.get('created_at', '')[:16]}"
+            )
+            await query.edit_message_text(
+                text,
+                reply_markup=get_report_detail_keyboard(report_id, report.get("reported_user_id")),
+                parse_mode="Markdown"
+            )
+
+    elif data.startswith("mod_remove_content_"):
+        if not is_admin(user_id):
+            return
+        report_id = int(data.replace("mod_remove_content_", ""))
+        report = db.get_report(report_id)
+        if not report:
+            await query.answer("Report nahi mila.", show_alert=True)
+            return
+        sched_id = report.get("scheduled_message_id")
+        target_user = report.get("reported_user_id")
+        if sched_id:
+            db.delete_scheduled_message(sched_id)
+            if scheduler:
+                scheduler.remove_scheduled_job(sched_id)
+            media_entry = db.get_media_log_by_schedule_id(sched_id)
+            if media_entry:
+                db.mark_media_log_status(media_entry["id"], "removed")
+        db.update_report_status(report_id, "actioned")
+        db.add_audit_log("content_removal", user_id, target_user, f"report_id={report_id} schedule_id={sched_id}")
+        if target_user:
+            try:
+                await context.bot.send_message(
+                    chat_id=target_user,
+                    text="Your scheduled content has been removed due to a copyright complaint."
+                )
+            except Exception as e:
+                print(f"Failed to notify {target_user} of removal: {e}")
+        await query.edit_message_text("✅ **Content removed and user notified.**", reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown")
+
+    elif data.startswith("mod_strike_"):
+        if not is_admin(user_id):
+            return
+        parts = data.replace("mod_strike_", "").split("_")
+        target_user_id = int(parts[0])
+        report_id = int(parts[1]) if len(parts) > 1 else None
+        count = await apply_strike(context, target_user_id, f"Copyright report #{report_id}" if report_id else "Manual strike", user_id)
+        if report_id:
+            db.update_report_status(report_id, "actioned")
+        await query.edit_message_text(
+            f"✅ **Strike #{count} issued to user `{target_user_id}`.**",
+            reply_markup=get_moderation_panel_keyboard(),
+            parse_mode="Markdown"
+        )
+
+    elif data.startswith("mod_dismiss_"):
+        if not is_admin(user_id):
+            return
+        report_id = int(data.replace("mod_dismiss_", ""))
+        db.update_report_status(report_id, "dismissed")
+        await query.edit_message_text("✅ **Report dismissed.**", reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown")
+
+    elif data == "mod_view_strikes":
+        if not is_admin(user_id):
+            return
+        await query.edit_message_text(
+            "**View Strikes**\n\nUser ID bhejein:",
+            parse_mode="Markdown"
+        )
+        context.user_data["state"] = MOD_USER_HISTORY_INPUT
+        context.user_data["mod_lookup_mode"] = "strikes"
+
+    elif data == "mod_audit_log":
+        if not is_admin(user_id):
+            return
+        logs = db.get_audit_log(limit=15)
+        if not logs:
+            text = "**Audit log khali hai.**"
+        else:
+            text = "**📜 Audit Log** (latest 15)\n\n"
+            for l in logs:
+                text += f"`{l.get('created_at', '')[:16]}` — {l.get('action_type')} — actor:`{l.get('actor_id')}` target:`{l.get('target_user_id')}`\n"
+        await query.edit_message_text(text, reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown")
+
+    elif data == "mod_ban_user":
+        if not is_admin(user_id):
+            return
+        await query.edit_message_text("**Ban User**\n\nUser ID bhejein:", parse_mode="Markdown")
+        context.user_data["state"] = MOD_BAN_INPUT
+
+    elif data == "mod_unban_user":
+        if not is_admin(user_id):
+            return
+        await query.edit_message_text("**Unban User**\n\nUser ID bhejein:", parse_mode="Markdown")
+        context.user_data["state"] = MOD_UNBAN_INPUT
+
+    elif data == "mod_reset_strikes":
+        if not is_admin(user_id):
+            return
+        await query.edit_message_text("**Reset Strikes**\n\nUser ID bhejein:", parse_mode="Markdown")
+        context.user_data["state"] = MOD_RESET_STRIKES_INPUT
+
+    elif data == "mod_user_history":
+        if not is_admin(user_id):
+            return
+        await query.edit_message_text("**View User History**\n\nUser ID bhejein:", parse_mode="Markdown")
+        context.user_data["state"] = MOD_USER_HISTORY_INPUT
+        context.user_data["mod_lookup_mode"] = "full"
+
 
 async def _finalize_schedule(update, context, user, schedule_time_utc, ist_display):
     """Save to DB and schedule the message after time is confirmed."""
@@ -744,6 +1053,20 @@ async def _finalize_schedule(update, context, user, schedule_time_utc, ist_displ
             media_type=media_type, media_file_id=media_file_id, media_caption=media_caption
         )
 
+    # ===== COPYRIGHT: LOG + NOTIFY OWNER/ADMINS =====
+    # Only for media types that can carry copyrighted long-form content.
+    if msg_data and media_type in Config.COPYRIGHT_RELEVANT_MEDIA_TYPES:
+        upload_dt = datetime.utcnow()
+        db.log_scheduled_media(
+            user_id=user.id,
+            file_id=media_file_id,
+            message_id=msg_data["id"],
+            media_type=media_type,
+            schedule_time=schedule_time_utc,
+            upload_date=upload_dt
+        )
+        await notify_owner_admins_new_media(context, user, media_type, schedule_time_utc, upload_dt)
+
     MEDIA_NAMES = {
         "photo": "\U0001f4f7 Photo", "video": "\U0001f3ac Video",
         "document": "\U0001f4c4 Document", "audio": "\U0001f3b5 Audio",
@@ -771,6 +1094,11 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     user = update.effective_user
+
+    if db.is_user_banned(user.id):
+        await update.message.reply_text("You are permanently banned from using this bot.")
+        return
+
     text = update.message.text  # None for media messages — checked below per-type
     state = context.user_data.get("state")
 
@@ -839,6 +1167,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                          SCHEDULE_POLL_OPTS, SCHEDULE_CONTACT, SCHEDULE_LOCATION,
                          SET_DEFAULT_AI_LIMIT, SET_USER_AI_LIMIT,
                          SCHEDULE_DATE, SCHEDULE_AMPM,
+                         REPORT_REASON, MOD_BAN_INPUT, MOD_UNBAN_INPUT,
+                         MOD_RESET_STRIKES_INPUT, MOD_USER_HISTORY_INPUT,
                          "channel_add_id", "channel_add_link"):
             return
         # Still no text but state expects it — ask again
@@ -986,7 +1316,92 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_photo(photo=qr_bio, caption="**Aapka QR Code:**")
         await update.message.reply_text("**Main Menu:**", reply_markup=get_main_menu(user.id), parse_mode="Markdown")
         context.user_data["state"] = None
-    
+
+    elif state == REPORT_REASON:
+        scheduled_message_id = context.user_data.get("report_target_id")
+        if not scheduled_message_id:
+            await update.message.reply_text("❌ Session expired. /menu se dobara try karein.")
+            context.user_data["state"] = None
+            return
+        await _file_copyright_report(update, context, user.id, scheduled_message_id, text.strip())
+        context.user_data.pop("report_target_id", None)
+        context.user_data["state"] = None
+
+    elif state == MOD_BAN_INPUT and is_admin(user.id):
+        try:
+            target_id = int(text.strip())
+            db.set_user_banned(target_id, True)
+            db.add_audit_log("ban", user.id, target_id, "Manual ban via moderation panel")
+            try:
+                await context.bot.send_message(chat_id=target_id, text="You are permanently banned from using this bot.")
+            except Exception:
+                pass
+            await update.message.reply_text(f"✅ **User `{target_id}` banned.**", reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown")
+        except ValueError:
+            await update.message.reply_text("❌ **Invalid User ID.**", parse_mode="Markdown")
+        context.user_data["state"] = None
+
+    elif state == MOD_UNBAN_INPUT and is_admin(user.id):
+        try:
+            target_id = int(text.strip())
+            db.set_user_banned(target_id, False)
+            db.add_audit_log("unban", user.id, target_id, "Manual unban via moderation panel")
+            try:
+                await context.bot.send_message(chat_id=target_id, text="✅ Your ban has been lifted. You can use the bot again.")
+            except Exception:
+                pass
+            await update.message.reply_text(f"✅ **User `{target_id}` unbanned.**", reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown")
+        except ValueError:
+            await update.message.reply_text("❌ **Invalid User ID.**", parse_mode="Markdown")
+        context.user_data["state"] = None
+
+    elif state == MOD_RESET_STRIKES_INPUT and is_admin(user.id):
+        try:
+            target_id = int(text.strip())
+            db.reset_strikes(target_id)
+            db.set_user_restricted_until(target_id, None)
+            db.add_audit_log("strike_reset", user.id, target_id, "Strikes reset via moderation panel")
+            await update.message.reply_text(f"✅ **Strikes reset for user `{target_id}`.**", reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown")
+        except ValueError:
+            await update.message.reply_text("❌ **Invalid User ID.**", parse_mode="Markdown")
+        context.user_data["state"] = None
+
+    elif state == MOD_USER_HISTORY_INPUT and is_admin(user.id):
+        try:
+            target_id = int(text.strip())
+            mode = context.user_data.get("mod_lookup_mode", "full")
+            strikes = db.get_user_strikes(target_id)
+            target_user = db.get_user(target_id)
+
+            if mode == "strikes":
+                if not strikes:
+                    body = f"**User `{target_id}` ka koi strike nahi hai.**"
+                else:
+                    body = f"**⚠️ Strikes for `{target_id}`** ({len(strikes)} total)\n\n"
+                    for s in strikes:
+                        body += f"`{s.get('created_at', '')[:16]}` — {s.get('reason', '')}\n"
+            else:
+                media_log = db.get_user_media_log(target_id)
+                audit = db.get_user_audit_log(target_id)
+                is_banned = target_user.get("is_banned") if target_user else False
+                restricted = db.is_user_restricted(target_id)
+                body = (
+                    f"**🔍 User History: `{target_id}`**\n\n"
+                    f"Banned: {'Yes' if is_banned else 'No'}\n"
+                    f"Restricted until: {restricted.strftime('%d-%m-%Y %H:%M UTC') if restricted else 'No'}\n"
+                    f"Strikes: {len(strikes)}\n"
+                    f"Scheduled media items: {len(media_log)}\n\n"
+                    f"**Recent audit entries:**\n"
+                )
+                for a in audit[:10]:
+                    body += f"`{a.get('created_at', '')[:16]}` — {a.get('action_type')}\n"
+
+            await update.message.reply_text(body, reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown")
+        except ValueError:
+            await update.message.reply_text("❌ **Invalid User ID.**", parse_mode="Markdown")
+        context.user_data["state"] = None
+        context.user_data.pop("mod_lookup_mode", None)
+
     elif state == "channel_add_id" and is_owner(user.id):
     
         try:
@@ -1251,6 +1666,9 @@ async def combined_join_request_handler(update: Update, context: ContextTypes.DE
 
 async def skip_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles /skip command for optional steps like caption."""
+    if db.is_user_banned(update.effective_user.id):
+        await update.message.reply_text("You are permanently banned from using this bot.")
+        return
     state = context.user_data.get("state")
     if state == SCHEDULE_CAPTION:
         context.user_data["sched_media_caption"] = None
@@ -1265,11 +1683,92 @@ async def skip_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def menu_command(update, context):
     context.user_data.clear()
     user = update.effective_user
+    if db.is_user_banned(user.id):
+        await update.message.reply_text("You are permanently banned from using this bot.")
+        return
     if not await ensure_joined(update, context, user.id):
         return
     await update.message.reply_text(
         "📋 Main Menu",
         reply_markup=get_main_menu(user.id)
     )
+
+# ========== COPYRIGHT REPORT COMMAND ==========
+async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Usage: /report <scheduled_message_id> <reason>
+    Looks up the scheduled message to find who it belongs to, then files
+    a copyright_reports row and notifies the owner/admins."""
+    user = update.effective_user
+    if db.is_user_banned(user.id):
+        await update.message.reply_text("You are permanently banned from using this bot.")
+        return
+
+    args = context.args if hasattr(context, "args") else []
+    if not args:
+        await update.message.reply_text(
+            "**Usage:** `/report <schedule_id> <reason>`\n\n"
+            "Example: `/report 42 Pocket FM audiobook content uploaded without permission`\n\n"
+            "Find the schedule_id from **My Scheduled** in the main menu.",
+            parse_mode="Markdown"
+        )
+        return
+
+    try:
+        scheduled_message_id = int(args[0])
+    except ValueError:
+        await update.message.reply_text("❌ **schedule_id must be a number.** Use: `/report <schedule_id> <reason>`", parse_mode="Markdown")
+        return
+
+    reason = " ".join(args[1:]).strip()
+    if not reason:
+        await update.message.reply_text("❌ **Reason zaroori hai.** Use: `/report <schedule_id> <reason>`", parse_mode="Markdown")
+        return
+
+    await _file_copyright_report(update, context, user.id, scheduled_message_id, reason)
+
+
+async def _file_copyright_report(update, context, reporter_id, scheduled_message_id, reason):
+    """Called from /report and from the REPORT_REASON text-state handler
+    (which itself is reached via the inline 'Report' button). Both callers
+    pass a real Update with a .message — there is no callback-query path here."""
+    reported_user_id = None
+    media_entry = db.get_media_log_by_schedule_id(scheduled_message_id)
+    if media_entry:
+        reported_user_id = media_entry.get("user_id")
+    else:
+        # Fall back to looking up the schedule directly (works regardless
+        # of who owns it — needed for third-party reports, not just self-reports)
+        match = db.get_scheduled_message_by_id(scheduled_message_id)
+        if match:
+            reported_user_id = match.get("user_id")
+
+    report = db.create_copyright_report(reporter_id, reported_user_id, scheduled_message_id, reason)
+    db.add_audit_log("report", reporter_id, reported_user_id,
+                      f"schedule_id={scheduled_message_id} | {reason}")
+
+    reply_text = (
+        "🚨 **Report filed.** Owner/admins have been notified.\n\n"
+        f"Schedule ID: `{scheduled_message_id}`\nReason: {reason}"
+    )
+    await update.message.reply_text(reply_text, parse_mode="Markdown")
+
+    # Notify owner + admins
+    notify_text = (
+        "🚨 Copyright Report Filed\n\n"
+        f"Reported User ID: {reported_user_id or 'Unknown'}\n"
+        f"Scheduled Message ID: {scheduled_message_id}\n"
+        f"Reason: {reason}\n"
+        f"Reporter ID: {reporter_id}\n"
+        f"Timestamp: {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC\n"
+        f"Report ID: {report['id'] if report else 'N/A'}"
+    )
+    recipients = {Config.OWNER_ID}
+    for a in db.get_all_admins():
+        recipients.add(a["user_id"])
+    for rid in recipients:
+        try:
+            await context.bot.send_message(chat_id=rid, text=notify_text)
+        except Exception as e:
+            print(f"Failed to notify {rid} of report: {e}")
 
     

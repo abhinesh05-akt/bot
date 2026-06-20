@@ -170,6 +170,12 @@ class Database:
     def get_user_scheduled_messages(self, user_id):
         return self._get(Config.TABLE_SCHEDULED_MSGS, {"user_id": f"eq.{user_id}"})
 
+    def get_scheduled_message_by_id(self, msg_id):
+        """Looks up a scheduled message by its own id, regardless of owner.
+        Needed for copyright reports filed against someone else's schedule."""
+        data = self._get(Config.TABLE_SCHEDULED_MSGS, {"id": f"eq.{msg_id}"})
+        return data[0] if data else None
+
     def delete_scheduled_message(self, msg_id):
         return self._delete(Config.TABLE_SCHEDULED_MSGS, {"id": f"eq.{msg_id}"})
 
@@ -288,5 +294,140 @@ class Database:
 
     def delete_update(self, update_id):
         return self._delete(Config.TABLE_BOT_UPDATES, {"id": f"eq.{update_id}"})
+
+    # ========== COPYRIGHT: BAN / RESTRICTION CHECKS ==========
+    def is_user_banned(self, user_id):
+        user = self.get_user(user_id)
+        return bool(user and user.get("is_banned"))
+
+    def is_user_restricted(self, user_id):
+        """Returns the restriction expiry datetime if user is currently
+        restricted from scheduling, else None. Restriction is time-bound
+        (strike 2); ban (strike 3) is permanent and checked separately."""
+        user = self.get_user(user_id)
+        if not user:
+            return None
+        until_str = user.get("restricted_until")
+        if not until_str:
+            return None
+        try:
+            until = datetime.fromisoformat(until_str)
+        except Exception:
+            return None
+        if until > datetime.utcnow():
+            return until
+        return None
+
+    def set_user_banned(self, user_id, banned=True):
+        self._patch(Config.TABLE_USERS, {"is_banned": banned}, {"user_id": f"eq.{user_id}"})
+
+    def set_user_restricted_until(self, user_id, until_dt):
+        """Pass None to clear the restriction."""
+        value = until_dt.isoformat() if until_dt else None
+        self._patch(Config.TABLE_USERS, {"restricted_until": value}, {"user_id": f"eq.{user_id}"})
+
+    def has_acknowledged_copyright_warning(self, user_id):
+        user = self.get_user(user_id)
+        return bool(user and user.get("copyright_warning_ack"))
+
+    def set_copyright_warning_acknowledged(self, user_id):
+        self._patch(Config.TABLE_USERS, {"copyright_warning_ack": True}, {"user_id": f"eq.{user_id}"})
+
+    # ========== COPYRIGHT: MEDIA LOG ==========
+    def log_scheduled_media(self, user_id, file_id, message_id, media_type, schedule_time, upload_date=None):
+        """Records every scheduled copyright-relevant media item for moderation lookup.
+        message_id here is the scheduled_messages.id (the schedule's own DB id),
+        since the original Telegram message_id isn't retained anywhere upstream."""
+        data = {
+            "user_id": user_id,
+            "file_id": file_id,
+            "message_id": message_id,
+            "media_type": media_type,
+            "schedule_time": schedule_time.isoformat() if hasattr(schedule_time, "isoformat") else str(schedule_time),
+            "upload_date": (upload_date or datetime.utcnow()).isoformat(),
+            "strike_status": "none",
+            "created_at": datetime.utcnow().isoformat()
+        }
+        result = self._post(Config.TABLE_MEDIA_LOG, data)
+        return result[0] if result else None
+
+    def get_media_log_entry(self, log_id):
+        data = self._get(Config.TABLE_MEDIA_LOG, {"id": f"eq.{log_id}"})
+        return data[0] if data else None
+
+    def get_media_log_by_schedule_id(self, schedule_message_id):
+        data = self._get(Config.TABLE_MEDIA_LOG, {"message_id": f"eq.{schedule_message_id}"})
+        return data[0] if data else None
+
+    def get_user_media_log(self, user_id):
+        return self._get(Config.TABLE_MEDIA_LOG, {"user_id": f"eq.{user_id}", "order": "created_at.desc"})
+
+    def mark_media_log_status(self, log_id, status):
+        """status: 'none' | 'flagged' | 'removed' | 'infringing'"""
+        self._patch(Config.TABLE_MEDIA_LOG, {"strike_status": status}, {"id": f"eq.{log_id}"})
+
+    # ========== COPYRIGHT: REPORTS ==========
+    def create_copyright_report(self, reporter_id, reported_user_id, scheduled_message_id, reason):
+        data = {
+            "reporter_id": reporter_id,
+            "reported_user_id": reported_user_id,
+            "scheduled_message_id": scheduled_message_id,
+            "reason": reason,
+            "status": "open",
+            "created_at": datetime.utcnow().isoformat()
+        }
+        result = self._post(Config.TABLE_COPYRIGHT_REPORTS, data)
+        return result[0] if result else None
+
+    def get_all_reports(self):
+        return self._get(f"{Config.TABLE_COPYRIGHT_REPORTS}?order=created_at.desc")
+
+    def get_report(self, report_id):
+        data = self._get(Config.TABLE_COPYRIGHT_REPORTS, {"id": f"eq.{report_id}"})
+        return data[0] if data else None
+
+    def update_report_status(self, report_id, status):
+        self._patch(Config.TABLE_COPYRIGHT_REPORTS, {"status": status}, {"id": f"eq.{report_id}"})
+
+    # ========== COPYRIGHT: STRIKES ==========
+    def get_user_strike_count(self, user_id):
+        rows = self._get(Config.TABLE_COPYRIGHT_STRIKES, {"user_id": f"eq.{user_id}"})
+        return len(rows) if rows else 0
+
+    def add_strike(self, user_id, reason, added_by):
+        data = {
+            "user_id": user_id,
+            "reason": reason,
+            "added_by": added_by,
+            "created_at": datetime.utcnow().isoformat()
+        }
+        self._post(Config.TABLE_COPYRIGHT_STRIKES, data)
+        return self.get_user_strike_count(user_id)
+
+    def get_user_strikes(self, user_id):
+        return self._get(Config.TABLE_COPYRIGHT_STRIKES, {"user_id": f"eq.{user_id}", "order": "created_at.desc"})
+
+    def reset_strikes(self, user_id):
+        self._delete(Config.TABLE_COPYRIGHT_STRIKES, {"user_id": f"eq.{user_id}"})
+
+    # ========== COPYRIGHT: AUDIT LOG ==========
+    def add_audit_log(self, action_type, actor_id, target_user_id, details=""):
+        """action_type: 'report' | 'content_removal' | 'warning' | 'restriction' |
+        'ban' | 'unban' | 'strike_reset'"""
+        data = {
+            "action_type": action_type,
+            "actor_id": actor_id,
+            "target_user_id": target_user_id,
+            "details": details,
+            "created_at": datetime.utcnow().isoformat()
+        }
+        self._post(Config.TABLE_AUDIT_LOG, data)
+
+    def get_audit_log(self, limit=50):
+        data = self._get(f"{Config.TABLE_AUDIT_LOG}?order=created_at.desc&limit={limit}")
+        return data if isinstance(data, list) else []
+
+    def get_user_audit_log(self, user_id):
+        return self._get(Config.TABLE_AUDIT_LOG, {"target_user_id": f"eq.{user_id}", "order": "created_at.desc"})
 
 db = Database()

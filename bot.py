@@ -6,7 +6,7 @@ from telegram.request import HTTPXRequest
 from config import Config
 from handlers import (start, side_menu, help_command, callback_handler, message_handler,
 chat_join_request, menu_command, handle_join_request, join_request, skip_command,
-combined_join_request_handler)
+combined_join_request_handler, report_command)
 from scheduler import init_scheduler, reschedule_pending_messages
 from telegram.error import BadRequest, NetworkError, TimedOut
 
@@ -24,7 +24,8 @@ async def post_init(application):
     await application.bot.set_my_commands([
         BotCommand("start", "Start Bot"),
         BotCommand("help", "Help Menu"),
-        BotCommand("menu", "Open Menu")
+        BotCommand("menu", "Open Menu"),
+        BotCommand("report", "Report Copyright Violation")
     ])
 
     cmds = await application.bot.get_my_commands()
@@ -86,6 +87,7 @@ def main():
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("menu", menu_command))
     application.add_handler(CommandHandler("skip", skip_command))
+    application.add_handler(CommandHandler("report", report_command))
 
     # Callback & Message Handlers
     application.add_handler(CallbackQueryHandler(callback_handler))
