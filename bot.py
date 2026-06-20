@@ -1,7 +1,5 @@
 import logging
 import os
-import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update, BotCommand
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, ChatJoinRequestHandler, filters
 from telegram.request import HTTPXRequest
@@ -103,53 +101,35 @@ def main():
 
     logger.info("Bot started! Commands: /start, /sidemenu, /help")
 
-    # Check if running on Hugging Face
-    if os.getenv("SPACE_ID"):
-        # Health check server — HF Space "Starting" se "Running" tab par
-        # tabhi aata hai jab port 7860 pe HTTP 200 response mile.
-        # PTB ka run_webhook port 7860 pe /telegram path use karta hai,
-        # root "/" pe kuch nahi hota — isliye HF "Starting" mein stuck rehta.
-        # Yeh lightweight server root pe 200 OK deta hai.
-        class HealthHandler(BaseHTTPRequestHandler):
-            def do_GET(self):
-                self.send_response(200)
-                self.end_headers()
-                self.wfile.write(b"OK")
-            def log_message(self, format, *args):
-                pass  # silent — logs mein spam nahi
+    # Railway sets RAILWAY_PUBLIC_DOMAIN automatically when a public port
+    # is exposed (e.g. "yourapp.up.railway.app", no scheme, no trailing slash).
+    # Falls back to RAILWAY_STATIC_URL for older Railway environments, and to
+    # WEBHOOK_URL for any other host. If none are set, runs polling instead.
+    public_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN") or os.getenv("RAILWAY_STATIC_URL")
+    webhook_url_env = os.getenv("WEBHOOK_URL")  # e.g. https://yourapp.up.railway.app
 
-        def run_health_server():
-            server = HTTPServer(("0.0.0.0", 8080), HealthHandler)
-            server.serve_forever()
+    port = int(os.getenv("PORT", 8080))
 
-        health_thread = threading.Thread(target=run_health_server, daemon=True)
-        health_thread.start()
-        logger.info("Health check server started on port 8080")
-
-    if os.getenv("SPACE_ID"):
-        logger.info("Running on Hugging Face - using webhook mode")
-        port = int(os.getenv("PORT", 7860))
-        space_host = os.getenv("SPACE_HOST", "")
-        
-        logger.info(f"PORT={port}")
-        logger.info(f"SPACE_HOST={space_host}")
-        
-        if space_host:
-            webhook_url = f"https://{space_host}"
-            logger.info(f"Webhook URL: {webhook_url}")
-
-            application.run_webhook(
-                listen="0.0.0.0",
-                port=port,
-                url_path="telegram",
-                webhook_url=f"https://{space_host}/telegram",
-                allowed_updates=Update.ALL_TYPES,
-                drop_pending_updates=True
-            )
+    if public_domain or webhook_url_env:
+        if webhook_url_env:
+            base_url = webhook_url_env.rstrip("/")
         else:
-            logger.error("SPACE_HOST not set!")
+            base_url = f"https://{public_domain}"
+
+        logger.info("Running on Railway - using webhook mode")
+        logger.info(f"PORT={port}")
+        logger.info(f"Webhook base URL: {base_url}")
+
+        application.run_webhook(
+            listen="0.0.0.0",
+            port=port,
+            url_path="telegram",
+            webhook_url=f"{base_url}/telegram",
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True
+        )
     else:
-        logger.info("Running locally - using polling mode")
+        logger.info("No public domain detected - using polling mode")
         application.run_polling(
             allowed_updates=Update.ALL_TYPES,
             drop_pending_updates=True
