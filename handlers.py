@@ -472,6 +472,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     callback_data="user_my_channels"
                 )
             ]
+            [InlineKeyboardButton("🔙 Back", callback_data="auto_approve_menu")]
         ]
     
         await query.edit_message_text(
