@@ -571,15 +571,20 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ===== MY SCHEDULED MESSAGES =====
     elif data == "my_scheduled":
-        msgs = db.get_user_scheduled_messages(user_id)
+        msgs = db.get_user_active_scheduled_messages(user_id)
         if not msgs:
-            await query.edit_message_text("**Aapke koi scheduled messages nahi hain.**", reply_markup=get_main_menu(user_id), parse_mode="Markdown")
+            await query.edit_message_text(
+                "**Aapke koi scheduled messages nahi hain.**\n\n"
+                "_(Sent messages 24 ghante baad hataye jaate hain)_",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="main_menu")]]),
+                parse_mode="Markdown"
+            )
         else:
             await query.edit_message_text("**Your Scheduled Messages:**", reply_markup=get_scheduled_list_keyboard(msgs), parse_mode="Markdown")
 
     elif data.startswith("sched_detail_"):
         msg_id = int(data.replace("sched_detail_", ""))
-        msgs = db.get_user_scheduled_messages(user_id)
+        msgs = db.get_user_active_scheduled_messages(user_id)
         msg = next((m for m in msgs if m["id"] == msg_id), None)
         if msg:
             from keyboards import get_media_label

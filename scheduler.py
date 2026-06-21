@@ -238,6 +238,24 @@ class MessageScheduler:
         asyncio.ensure_future(self._db_poll_loop())
         logger.info("[DB POLL] Background polling task scheduled.")
 
+        # Daily cleanup: delete sent messages older than 24h
+        from apscheduler.triggers.interval import IntervalTrigger
+        self._get_scheduler().add_job(
+            self._cleanup_old_sent,
+            trigger=IntervalTrigger(hours=24),
+            id="daily_cleanup",
+            replace_existing=True
+        )
+        logger.info("[CLEANUP] Daily sent-message cleanup job scheduled (runs every 24h).")
+
+    async def _cleanup_old_sent(self):
+        """Delete sent scheduled messages older than 24 hours from DB."""
+        try:
+            db.delete_old_sent_messages()
+            logger.info("[CLEANUP] Old sent messages deleted from DB.")
+        except Exception as e:
+            logger.error(f"[CLEANUP] Error during cleanup: {e}", exc_info=True)
+
 
 # ------------------------------------------------------------------ #
 # Module-level helpers                                                 #

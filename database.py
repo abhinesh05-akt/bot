@@ -1,7 +1,7 @@
 import requests
 from config import Config
 import json
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 class Database:
     def __init__(self):
@@ -169,6 +169,24 @@ class Database:
 
     def get_user_scheduled_messages(self, user_id):
         return self._get(Config.TABLE_SCHEDULED_MSGS, {"user_id": f"eq.{user_id}"})
+
+    def get_user_active_scheduled_messages(self, user_id):
+        """Return all pending/failed messages + sent messages not yet 24h old."""
+        cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+        all_msgs = self._get(Config.TABLE_SCHEDULED_MSGS, {"user_id": f"eq.{user_id}"})
+        return [
+            m for m in all_msgs
+            if m.get("status") in ("pending", "failed")
+            or (m.get("status") == "sent" and (m.get("schedule_time") or "") >= cutoff)
+        ]
+
+    def delete_old_sent_messages(self):
+        """Delete all 'sent' messages whose schedule_time is older than 24 hours."""
+        cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+        return self._delete(
+            Config.TABLE_SCHEDULED_MSGS,
+            {"status": "eq.sent", "schedule_time": f"lt.{cutoff}"}
+        )
 
     def get_scheduled_message_by_id(self, msg_id):
         """Looks up a scheduled message by its own id, regardless of owner.
