@@ -12,7 +12,8 @@ def get_main_menu(user_id):
     ])
     buttons.append([
         InlineKeyboardButton("📊 QR Code Generator", callback_data="qr_code"),
-        InlineKeyboardButton("📢 Bot Updates", callback_data="bot_updates")
+        InlineKeyboardButton("📢 Bot Updates", callback_data="bot_updates"),
+        InlineKeyboardButton("📨 My Scheduled", callback_data="my_scheduled")
     ])
 
     is_admin = user_id in [a["user_id"] for a in __import__('database').db.get_all_admins()]
@@ -21,7 +22,7 @@ def get_main_menu(user_id):
     if is_admin or is_owner:
         buttons.append([
             InlineKeyboardButton("👤 Manage Users", callback_data="manage_users"),
-            InlineKeyboardButton("📨 My Scheduled", callback_data="my_scheduled")
+            InlineKeyboardButton("🛡️ Moderation Panel", callback_data="moderation_panel")
         ])
 
     if is_owner:
