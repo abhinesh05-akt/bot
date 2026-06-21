@@ -36,7 +36,8 @@ def get_main_menu(user_id):
 
 def get_owner_panel():
     buttons = [
-        [InlineKeyboardButton("➕ Add Channel", callback_data="add_channel")],
+        [InlineKeyboardButton("➕ Add Channel", callback_data="add_channel"),
+         InlineKeyboardButton("➕ Add Group", callback_data="add_group")],
         [InlineKeyboardButton("➕ Add Admin", callback_data="add_admin")],
         [InlineKeyboardButton("⚙️ Set AI Limit", callback_data="ai_limit_menu")],
         [InlineKeyboardButton("📋 Channel List", callback_data="channel_list")],

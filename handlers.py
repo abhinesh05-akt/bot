@@ -460,11 +460,15 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton(
                     "➕ Add Channel",
                     callback_data="user_add_channel"
+                ),
+                InlineKeyboardButton(
+                    "➕ Add Group",
+                    callback_data="user_add_group"
                 )
             ],
             [
                 InlineKeyboardButton(
-                    "📋 My Channels",
+                    "📋 My Channels/Groups",
                     callback_data="user_my_channels"
                 )
             ]
@@ -482,6 +486,15 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Channel ID bhejein:\n\nExample:\n-1002390781736"
         )
         context.user_data["state"] = USER_CHANNEL_ADD
+        context.user_data["adding_chat_type"] = "channel"
+
+    elif data == "user_add_group":
+        await query.edit_message_text(
+            "Group ID bhejein:\n\nExample:\n-1002390781736\n\n"
+            "Bot ko group mein admin hona chahiye with 'Add Members' permission."
+        )
+        context.user_data["state"] = USER_CHANNEL_ADD
+        context.user_data["adding_chat_type"] = "group"
 
     elif data == "user_my_channels":
         channels = db.get_user_channels(user_id)
@@ -606,6 +619,22 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     
         context.user_data["state"] = "channel_add_id"
+        context.user_data["adding_owner_type"] = "channel"
+
+    elif data == "add_group":
+        if not is_owner(user_id):
+            return
+
+        await query.edit_message_text(
+            "**Group ID bhejein**\n\n"
+            "Example:\n"
+            "`-1002390781736`\n\n"
+            "Bot ko group mein admin banaein.",
+            parse_mode="Markdown"
+        )
+
+        context.user_data["state"] = "channel_add_id"
+        context.user_data["adding_owner_type"] = "group"
 
     elif data == "add_admin":
         if not is_owner(user_id):
@@ -1420,7 +1449,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
         except:
             await update.message.reply_text(
-                "❌ Invalid Channel ID"
+                "❌ Invalid ID. Sirf numeric ID bhejein (e.g. -1002390781736)"
             )
     
     
@@ -1430,18 +1459,18 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             invite_link = text.strip()
     
             ch_id = context.user_data.get("channel_id")
-    
-            
-    
+            owner_type = context.user_data.get("adding_owner_type", "channel")
+            type_label = "Group" if owner_type == "group" else "Channel"
+
             db.add_channel(
                 ch_id,
-                f"Channel {ch_id}",
+                f"{type_label} {ch_id}",
                 invite_link,
                 user.id
             )
                 
             await update.message.reply_text(
-                f"✅ Channel Added:\n{ch_id}",
+                f"✅ {type_label} Added:\n{ch_id}",
                 reply_markup=get_owner_panel()
             )
     
@@ -1452,6 +1481,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
     
         context.user_data.pop("channel_id", None)
+        context.user_data.pop("adding_owner_type", None)
         context.user_data["state"] = None
     
 
@@ -1482,15 +1512,18 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
     
                 return
-    
+
+            chat_type = context.user_data.get("adding_chat_type", "channel")
             db.add_user_channel(
                 update.effective_user.id,
                 channel_id,
-                chat.title
+                chat.title,
+                chat_type=chat_type
             )
     
+            type_label = "Group" if chat_type == "group" else "Channel"
             await update.message.reply_text(
-                f"✅ Added:\n{chat.title}"
+                f"✅ {type_label} Added:\n{chat.title}"
             )
     
         except Exception as e:
@@ -1500,6 +1533,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
     
         context.user_data["state"] = None
+        context.user_data.pop("adding_chat_type", None)
     
 
     elif state == ADMIN_ADD and is_owner(user.id):

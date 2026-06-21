@@ -226,13 +226,15 @@ class Database:
         self,
         user_id,
         channel_id,
-        channel_name
+        channel_name,
+        chat_type="channel"
     ):
         data = {
             "user_id": user_id,
             "channel_id": channel_id,
             "channel_name": channel_name,
             "auto_approve": True,
+            "chat_type": chat_type,
             "created_at": datetime.utcnow().isoformat()
         }
     
