@@ -332,13 +332,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ===== AI CHAT =====
     elif data == "ai_chat":
         context.user_data["active_feature"] = "ai"
-    
+        context.user_data["state"] = AI_CHAT
         await query.edit_message_text(
             "**AI Chat**\n\nAapka sawal type karein:\n\n/menu se exit karein.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="main_menu")]]),
             parse_mode="Markdown"
         )
-    
-        context.user_data["state"] = AI_CHAT
 
     # ===== SCHEDULE MESSAGE =====
     elif data == "schedule_msg":
@@ -357,6 +356,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"- Channel: `-1001234567890`\n"
             f"- Group: `-1001234567890`\n"
             f"- User: `@username` ya `123456789`",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="schedule_msg")]]),
             parse_mode="Markdown"
         )
 
@@ -441,9 +441,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ===== QR CODE =====
     elif data == "qr_code":
         context.user_data["active_feature"] = "qr"
-
-        await query.edit_message_text("**QR Code Generator**\n\nText ya URL type karein:", parse_mode="Markdown")
         context.user_data["state"] = QR_INPUT
+        await query.edit_message_text(
+            "**QR Code Generator**\n\nText ya URL type karein:",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="main_menu")]]),
+            parse_mode="Markdown"
+        )
 
     # ===== AUTO APPROVE  =====
     elif data == "auto_approve_menu":
@@ -472,7 +475,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     callback_data="user_my_channels"
                 )
             ],
-            [InlineKeyboardButton("🔙 Back", callback_data="auto_approve_menu")]
+            [
+                InlineKeyboardButton(
+                    "🔙 Back",
+                    callback_data="main_menu"
+                )
+            ]
         ]
     
         await query.edit_message_text(
@@ -484,7 +492,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "user_add_channel":
         await query.edit_message_text(
-            "Channel ID bhejein:\n\nExample:\n-1002390781736"
+            "Channel ID bhejein:\n\nExample:\n-1002390781736",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="auto_approve_menu")]])
         )
         context.user_data["state"] = USER_CHANNEL_ADD
         context.user_data["adding_chat_type"] = "channel"
@@ -492,7 +501,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "user_add_group":
         await query.edit_message_text(
             "Group ID bhejein:\n\nExample:\n-1002390781736\n\n"
-            "Bot ko group mein admin hona chahiye with 'Add Members' permission."
+            "Bot ko group mein admin hona chahiye with 'Add Members' permission.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="auto_approve_menu")]])
         )
         context.user_data["state"] = USER_CHANNEL_ADD
         context.user_data["adding_chat_type"] = "group"
@@ -610,37 +620,39 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "add_channel":
         if not is_owner(user_id):
             return
-    
         await query.edit_message_text(
             "**Channel ID bhejein**\n\n"
             "Example:\n"
             "`-1002390781736`\n\n"
             "Bot ko channel mein admin banaein.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="owner_panel")]]),
             parse_mode="Markdown"
         )
-    
         context.user_data["state"] = "channel_add_id"
         context.user_data["adding_owner_type"] = "channel"
 
     elif data == "add_group":
         if not is_owner(user_id):
             return
-
         await query.edit_message_text(
             "**Group ID bhejein**\n\n"
             "Example:\n"
             "`-1002390781736`\n\n"
             "Bot ko group mein admin banaein.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="owner_panel")]]),
             parse_mode="Markdown"
         )
-
         context.user_data["state"] = "channel_add_id"
         context.user_data["adding_owner_type"] = "group"
 
     elif data == "add_admin":
         if not is_owner(user_id):
             return
-        await query.edit_message_text("**Admin ka Telegram ID bhejein:**", parse_mode="Markdown")
+        await query.edit_message_text(
+            "**Admin ka Telegram ID bhejein:**",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="owner_panel")]]),
+            parse_mode="Markdown"
+        )
         context.user_data["state"] = ADMIN_ADD
 
     elif data == "ai_limit_menu":
@@ -657,11 +669,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "`user_id|limit`\n\n"
             "Example:\n"
             "`123456789|100`",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="ai_limit_menu")]]),
             parse_mode="Markdown"
         )
-    
         context.user_data["state"] = SET_USER_AI_LIMIT
-    
+
     elif data == "set_admin_ai_limit":
         await query.edit_message_text(
             "**Sabhi users ka default AI limit set karein**\n\n"
@@ -669,9 +681,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "`limit`\n\n"
             "Example:\n"
             "`20`",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="ai_limit_menu")]]),
             parse_mode="Markdown"
         )
-    
         context.user_data["state"] = SET_DEFAULT_AI_LIMIT
 
 
@@ -746,7 +758,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "post_update":
         if not is_owner(user_id):
             return
-        await query.edit_message_text("**Update Title bhejein:**", parse_mode="Markdown")
+        await query.edit_message_text(
+            "**Update Title bhejein:**",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="owner_panel")]]),
+            parse_mode="Markdown"
+        )
         context.user_data["state"] = UPDATE_TITLE
 
     elif data == "manage_users":
@@ -896,6 +912,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             "🚨 **Report Copyright Violation**\n\n"
             "Reason bhejein (kya copyrighted content hai, kis show/movie/audiobook ka):",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="my_scheduled")]]),
             parse_mode="Markdown"
         )
 
@@ -1003,6 +1020,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         await query.edit_message_text(
             "**View Strikes**\n\nUser ID bhejein:",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="moderation_panel")]]),
             parse_mode="Markdown"
         )
         context.user_data["state"] = MOD_USER_HISTORY_INPUT
@@ -1023,25 +1041,41 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "mod_ban_user":
         if not is_admin(user_id):
             return
-        await query.edit_message_text("**Ban User**\n\nUser ID bhejein:", parse_mode="Markdown")
+        await query.edit_message_text(
+            "**Ban User**\n\nUser ID bhejein:",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="moderation_panel")]]),
+            parse_mode="Markdown"
+        )
         context.user_data["state"] = MOD_BAN_INPUT
 
     elif data == "mod_unban_user":
         if not is_admin(user_id):
             return
-        await query.edit_message_text("**Unban User**\n\nUser ID bhejein:", parse_mode="Markdown")
+        await query.edit_message_text(
+            "**Unban User**\n\nUser ID bhejein:",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="moderation_panel")]]),
+            parse_mode="Markdown"
+        )
         context.user_data["state"] = MOD_UNBAN_INPUT
 
     elif data == "mod_reset_strikes":
         if not is_admin(user_id):
             return
-        await query.edit_message_text("**Reset Strikes**\n\nUser ID bhejein:", parse_mode="Markdown")
+        await query.edit_message_text(
+            "**Reset Strikes**\n\nUser ID bhejein:",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="moderation_panel")]]),
+            parse_mode="Markdown"
+        )
         context.user_data["state"] = MOD_RESET_STRIKES_INPUT
 
     elif data == "mod_user_history":
         if not is_admin(user_id):
             return
-        await query.edit_message_text("**View User History**\n\nUser ID bhejein:", parse_mode="Markdown")
+        await query.edit_message_text(
+            "**View User History**\n\nUser ID bhejein:",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="moderation_panel")]]),
+            parse_mode="Markdown"
+        )
         context.user_data["state"] = MOD_USER_HISTORY_INPUT
         context.user_data["mod_lookup_mode"] = "full"
 
