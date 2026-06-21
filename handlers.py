@@ -1432,55 +1432,67 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("mod_lookup_mode", None)
 
     elif state == "channel_add_id" and is_owner(user.id):
-    
+
         try:
             ch_id = int(text.strip())
-    
+
+            # Fetch real title from Telegram right here
+            try:
+                chat = await context.bot.get_chat(ch_id)
+                chat_title = chat.title or str(ch_id)
+            except Exception:
+                chat_title = str(ch_id)  # fallback if bot not in chat yet
+
             context.user_data["channel_id"] = ch_id
-    
+            context.user_data["channel_name"] = chat_title
+
             await update.message.reply_text(
+                f"✅ Found: **{chat_title}**\n\n"
                 "**Ab Invite Link bhejein**\n\n"
                 "Example:\n"
                 "`https://t.me/+abc123xyz`",
                 parse_mode="Markdown"
             )
-    
+
             context.user_data["state"] = "channel_add_link"
-    
+
         except:
             await update.message.reply_text(
                 "❌ Invalid ID. Sirf numeric ID bhejein (e.g. -1002390781736)"
             )
-    
-    
+
+
     elif state == "channel_add_link" and is_owner(user.id):
-    
+
         try:
             invite_link = text.strip()
-    
+
             ch_id = context.user_data.get("channel_id")
+            ch_name = context.user_data.get("channel_name") or str(ch_id)
             owner_type = context.user_data.get("adding_owner_type", "channel")
             type_label = "Group" if owner_type == "group" else "Channel"
 
             db.add_channel(
                 ch_id,
-                f"{type_label} {ch_id}",
+                ch_name,
                 invite_link,
                 user.id
             )
-                
+
             await update.message.reply_text(
-                f"✅ {type_label} Added:\n{ch_id}",
-                reply_markup=get_owner_panel()
+                f"✅ {type_label} Added:\n**{ch_name}**",
+                reply_markup=get_owner_panel(),
+                parse_mode="Markdown"
             )
-    
+
         except Exception as e:
             await update.message.reply_text(
                 f"❌ Error:\n{e}",
                 reply_markup=get_owner_panel()
             )
-    
+
         context.user_data.pop("channel_id", None)
+        context.user_data.pop("channel_name", None)
         context.user_data.pop("adding_owner_type", None)
         context.user_data["state"] = None
     
