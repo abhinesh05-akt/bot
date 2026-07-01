@@ -332,12 +332,13 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ===== AI CHAT =====
     elif data == "ai_chat":
         context.user_data["active_feature"] = "ai"
-        context.user_data["state"] = AI_CHAT
+    
         await query.edit_message_text(
             "**AI Chat**\n\nAapka sawal type karein:\n\n/menu se exit karein.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="main_menu")]]),
             parse_mode="Markdown"
         )
+    
+        context.user_data["state"] = AI_CHAT
 
     # ===== SCHEDULE MESSAGE =====
     elif data == "schedule_msg":
@@ -356,7 +357,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"- Channel: `-1001234567890`\n"
             f"- Group: `-1001234567890`\n"
             f"- User: `@username` ya `123456789`",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="schedule_msg")]]),
             parse_mode="Markdown"
         )
 
@@ -441,12 +441,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ===== QR CODE =====
     elif data == "qr_code":
         context.user_data["active_feature"] = "qr"
+
+        await query.edit_message_text("**QR Code Generator**\n\nText ya URL type karein:", parse_mode="Markdown")
         context.user_data["state"] = QR_INPUT
-        await query.edit_message_text(
-            "**QR Code Generator**\n\nText ya URL type karein:",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="main_menu")]]),
-            parse_mode="Markdown"
-        )
 
     # ===== AUTO APPROVE  =====
     elif data == "auto_approve_menu":
@@ -463,22 +460,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton(
                     "➕ Add Channel",
                     callback_data="user_add_channel"
-                ),
-                InlineKeyboardButton(
-                    "➕ Add Group",
-                    callback_data="user_add_group"
                 )
             ],
             [
                 InlineKeyboardButton(
-                    "📋 My Channels/Groups",
+                    "📋 My Channels",
                     callback_data="user_my_channels"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "🔙 Back",
-                    callback_data="main_menu"
                 )
             ]
         ]
@@ -492,20 +479,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "user_add_channel":
         await query.edit_message_text(
-            "Channel ID bhejein:\n\nExample:\n-1002390781736",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="auto_approve_menu")]])
+            "Channel ID bhejein:\n\nExample:\n-1002390781736"
         )
         context.user_data["state"] = USER_CHANNEL_ADD
-        context.user_data["adding_chat_type"] = "channel"
-
-    elif data == "user_add_group":
-        await query.edit_message_text(
-            "Group ID bhejein:\n\nExample:\n-1002390781736\n\n"
-            "Bot ko group mein admin hona chahiye with 'Add Members' permission.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="auto_approve_menu")]])
-        )
-        context.user_data["state"] = USER_CHANNEL_ADD
-        context.user_data["adding_chat_type"] = "group"
 
     elif data == "user_my_channels":
         channels = db.get_user_channels(user_id)
@@ -571,20 +547,15 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ===== MY SCHEDULED MESSAGES =====
     elif data == "my_scheduled":
-        msgs = db.get_user_active_scheduled_messages(user_id)
+        msgs = db.get_user_scheduled_messages(user_id)
         if not msgs:
-            await query.edit_message_text(
-                "**Aapke koi scheduled messages nahi hain.**\n\n"
-                "_(Sent messages 24 ghante baad hataye jaate hain)_",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="main_menu")]]),
-                parse_mode="Markdown"
-            )
+            await query.edit_message_text("**Aapke koi scheduled messages nahi hain.**", reply_markup=get_main_menu(user_id), parse_mode="Markdown")
         else:
             await query.edit_message_text("**Your Scheduled Messages:**", reply_markup=get_scheduled_list_keyboard(msgs), parse_mode="Markdown")
 
     elif data.startswith("sched_detail_"):
         msg_id = int(data.replace("sched_detail_", ""))
-        msgs = db.get_user_active_scheduled_messages(user_id)
+        msgs = db.get_user_scheduled_messages(user_id)
         msg = next((m for m in msgs if m["id"] == msg_id), None)
         if msg:
             from keyboards import get_media_label
@@ -625,39 +596,21 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "add_channel":
         if not is_owner(user_id):
             return
+    
         await query.edit_message_text(
             "**Channel ID bhejein**\n\n"
             "Example:\n"
             "`-1002390781736`\n\n"
             "Bot ko channel mein admin banaein.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="owner_panel")]]),
             parse_mode="Markdown"
         )
+    
         context.user_data["state"] = "channel_add_id"
-        context.user_data["adding_owner_type"] = "channel"
-
-    elif data == "add_group":
-        if not is_owner(user_id):
-            return
-        await query.edit_message_text(
-            "**Group ID bhejein**\n\n"
-            "Example:\n"
-            "`-1002390781736`\n\n"
-            "Bot ko group mein admin banaein.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="owner_panel")]]),
-            parse_mode="Markdown"
-        )
-        context.user_data["state"] = "channel_add_id"
-        context.user_data["adding_owner_type"] = "group"
 
     elif data == "add_admin":
         if not is_owner(user_id):
             return
-        await query.edit_message_text(
-            "**Admin ka Telegram ID bhejein:**",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="owner_panel")]]),
-            parse_mode="Markdown"
-        )
+        await query.edit_message_text("**Admin ka Telegram ID bhejein:**", parse_mode="Markdown")
         context.user_data["state"] = ADMIN_ADD
 
     elif data == "ai_limit_menu":
@@ -674,11 +627,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "`user_id|limit`\n\n"
             "Example:\n"
             "`123456789|100`",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="ai_limit_menu")]]),
             parse_mode="Markdown"
         )
+    
         context.user_data["state"] = SET_USER_AI_LIMIT
-
+    
     elif data == "set_admin_ai_limit":
         await query.edit_message_text(
             "**Sabhi users ka default AI limit set karein**\n\n"
@@ -686,9 +639,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "`limit`\n\n"
             "Example:\n"
             "`20`",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="ai_limit_menu")]]),
             parse_mode="Markdown"
         )
+    
         context.user_data["state"] = SET_DEFAULT_AI_LIMIT
 
 
@@ -763,11 +716,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "post_update":
         if not is_owner(user_id):
             return
-        await query.edit_message_text(
-            "**Update Title bhejein:**",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="owner_panel")]]),
-            parse_mode="Markdown"
-        )
+        await query.edit_message_text("**Update Title bhejein:**", parse_mode="Markdown")
         context.user_data["state"] = UPDATE_TITLE
 
     elif data == "manage_users":
@@ -917,7 +866,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             "🚨 **Report Copyright Violation**\n\n"
             "Reason bhejein (kya copyrighted content hai, kis show/movie/audiobook ka):",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="my_scheduled")]]),
             parse_mode="Markdown"
         )
 
@@ -1001,10 +949,26 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("mod_strike_"):
         if not is_admin(user_id):
             return
-        parts = data.replace("mod_strike_", "").split("_")
-        target_user_id = int(parts[0])
-        report_id = int(parts[1]) if len(parts) > 1 else None
-        count = await apply_strike(context, target_user_id, f"Copyright report #{report_id}" if report_id else "Manual strike", user_id)
+        # Format: mod_strike_{reported_user_id}_{report_id}
+        # reported_user_id can be "None" string if unknown
+        remainder = data.replace("mod_strike_", "")
+        # Split from right to safely extract report_id
+        parts = remainder.rsplit("_", 1)
+        try:
+            raw_uid = parts[0]
+            target_user_id = int(raw_uid) if raw_uid != "None" else None
+            report_id = int(parts[1]) if len(parts) > 1 else None
+        except (ValueError, IndexError):
+            await query.answer("❌ Invalid strike data.", show_alert=True)
+            return
+
+        if target_user_id is None:
+            await query.answer("❌ User ID unknown — cannot issue strike.", show_alert=True)
+            return
+
+        count = await apply_strike(context, target_user_id,
+                                    f"Copyright report #{report_id}" if report_id else "Manual strike",
+                                    user_id)
         if report_id:
             db.update_report_status(report_id, "actioned")
         await query.edit_message_text(
@@ -1024,7 +988,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not is_admin(user_id):
             return
         await query.edit_message_text(
-            "**View Strikes**\n\nUser ID bhejein:",
+            "⚠️ **View Strikes**\n\nUser ID bhejein jiske strikes dekhne hain:",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="moderation_panel")]]),
             parse_mode="Markdown"
         )
@@ -1036,18 +1000,18 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         logs = db.get_audit_log(limit=15)
         if not logs:
-            text = "**Audit log khali hai.**"
+            text = "**📜 Audit Log**\n\nAbhi tak koi moderation action nahi hua."
         else:
             text = "**📜 Audit Log** (latest 15)\n\n"
             for l in logs:
-                text += f"`{l.get('created_at', '')[:16]}` — {l.get('action_type')} — actor:`{l.get('actor_id')}` target:`{l.get('target_user_id')}`\n"
+                text += f"`{l.get('created_at', '')[:16]}` — {l.get('action_type')} — actor:`{l.get('actor_id')}` → target:`{l.get('target_user_id')}`\n"
         await query.edit_message_text(text, reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown")
 
     elif data == "mod_ban_user":
         if not is_admin(user_id):
             return
         await query.edit_message_text(
-            "**Ban User**\n\nUser ID bhejein:",
+            "🚫 **Ban User**\n\nUser ID bhejein jise permanently ban karna hai:",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="moderation_panel")]]),
             parse_mode="Markdown"
         )
@@ -1057,7 +1021,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not is_admin(user_id):
             return
         await query.edit_message_text(
-            "**Unban User**\n\nUser ID bhejein:",
+            "✅ **Unban User**\n\nUser ID bhejein jise unban karna hai:",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="moderation_panel")]]),
             parse_mode="Markdown"
         )
@@ -1067,7 +1031,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not is_admin(user_id):
             return
         await query.edit_message_text(
-            "**Reset Strikes**\n\nUser ID bhejein:",
+            "♻️ **Reset Strikes**\n\nUser ID bhejein jiske saare strikes delete karne hain:",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="moderation_panel")]]),
             parse_mode="Markdown"
         )
@@ -1077,7 +1041,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not is_admin(user_id):
             return
         await query.edit_message_text(
-            "**View User History**\n\nUser ID bhejein:",
+            "🔍 **View User History**\n\nUser ID bhejein — ban status, restriction, strikes, media log aur recent actions dikhega:",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="moderation_panel")]]),
             parse_mode="Markdown"
         )
@@ -1405,9 +1369,20 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_message(chat_id=target_id, text="You are permanently banned from using this bot.")
             except Exception:
                 pass
-            await update.message.reply_text(f"✅ **User `{target_id}` banned.**", reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown")
+            await update.message.reply_text(
+                f"✅ **User `{target_id}` permanently ban kar diya gaya.**",
+                reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown"
+            )
         except ValueError:
-            await update.message.reply_text("❌ **Invalid User ID.**", parse_mode="Markdown")
+            await update.message.reply_text(
+                "❌ **Galat User ID.** Sirf number daalo jaise `123456789`",
+                reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown"
+            )
+        except Exception as e:
+            await update.message.reply_text(
+                f"❌ **Error:** {str(e)[:100]}",
+                reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown"
+            )
         context.user_data["state"] = None
 
     elif state == MOD_UNBAN_INPUT and is_admin(user.id):
@@ -1416,12 +1391,23 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             db.set_user_banned(target_id, False)
             db.add_audit_log("unban", user.id, target_id, "Manual unban via moderation panel")
             try:
-                await context.bot.send_message(chat_id=target_id, text="✅ Your ban has been lifted. You can use the bot again.")
+                await context.bot.send_message(chat_id=target_id, text="✅ Aapka ban lift ho gaya. Ab bot use kar sakte hain.")
             except Exception:
                 pass
-            await update.message.reply_text(f"✅ **User `{target_id}` unbanned.**", reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown")
+            await update.message.reply_text(
+                f"✅ **User `{target_id}` unban kar diya gaya.**",
+                reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown"
+            )
         except ValueError:
-            await update.message.reply_text("❌ **Invalid User ID.**", parse_mode="Markdown")
+            await update.message.reply_text(
+                "❌ **Galat User ID.** Sirf number daalo jaise `123456789`",
+                reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown"
+            )
+        except Exception as e:
+            await update.message.reply_text(
+                f"❌ **Error:** {str(e)[:100]}",
+                reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown"
+            )
         context.user_data["state"] = None
 
     elif state == MOD_RESET_STRIKES_INPUT and is_admin(user.id):
@@ -1430,110 +1416,128 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             db.reset_strikes(target_id)
             db.set_user_restricted_until(target_id, None)
             db.add_audit_log("strike_reset", user.id, target_id, "Strikes reset via moderation panel")
-            await update.message.reply_text(f"✅ **Strikes reset for user `{target_id}`.**", reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown")
+            await update.message.reply_text(
+                f"✅ **User `{target_id}` ke saare strikes delete kar diye gaye.**\n"
+                f"Restriction bhi hata di gayi agar thi.",
+                reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown"
+            )
         except ValueError:
-            await update.message.reply_text("❌ **Invalid User ID.**", parse_mode="Markdown")
+            await update.message.reply_text(
+                "❌ **Galat User ID.** Sirf number daalo jaise `123456789`",
+                reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown"
+            )
+        except Exception as e:
+            await update.message.reply_text(
+                f"❌ **Error:** {str(e)[:100]}",
+                reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown"
+            )
         context.user_data["state"] = None
 
     elif state == MOD_USER_HISTORY_INPUT and is_admin(user.id):
         try:
             target_id = int(text.strip())
             mode = context.user_data.get("mod_lookup_mode", "full")
-            strikes = db.get_user_strikes(target_id)
+            strikes = db.get_user_strikes(target_id) or []
             target_user = db.get_user(target_id)
 
-            if mode == "strikes":
+            if not target_user:
+                await update.message.reply_text(
+                    f"❌ **User `{target_id}` bot mein registered nahi hai.**",
+                    reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown"
+                )
+            elif mode == "strikes":
                 if not strikes:
-                    body = f"**User `{target_id}` ka koi strike nahi hai.**"
+                    body = f"⚠️ **User `{target_id}` ka koi strike nahi hai.**"
                 else:
-                    body = f"**⚠️ Strikes for `{target_id}`** ({len(strikes)} total)\n\n"
+                    body = f"⚠️ **Strikes for `{target_id}`** ({len(strikes)} total)\n\n"
                     for s in strikes:
-                        body += f"`{s.get('created_at', '')[:16]}` — {s.get('reason', '')}\n"
+                        body += f"`{s.get('created_at', '')[:16]}` — {s.get('reason', 'No reason')}\n"
+                await update.message.reply_text(body, reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown")
             else:
-                media_log = db.get_user_media_log(target_id)
-                audit = db.get_user_audit_log(target_id)
-                is_banned = target_user.get("is_banned") if target_user else False
+                media_log = db.get_user_media_log(target_id) or []
+                audit = db.get_user_audit_log(target_id) or []
+                is_banned_flag = target_user.get("is_banned", False)
                 restricted = db.is_user_restricted(target_id)
                 body = (
-                    f"**🔍 User History: `{target_id}`**\n\n"
-                    f"Banned: {'Yes' if is_banned else 'No'}\n"
-                    f"Restricted until: {restricted.strftime('%d-%m-%Y %H:%M UTC') if restricted else 'No'}\n"
+                    f"🔍 **User History: `{target_id}`**\n\n"
+                    f"Name: {target_user.get('first_name', 'N/A')}\n"
+                    f"Username: @{target_user.get('username', 'N/A')}\n"
+                    f"Banned: {'🔴 Yes' if is_banned_flag else '🟢 No'}\n"
+                    f"Restricted until: {restricted.strftime('%d-%m-%Y %H:%M UTC') if restricted else '🟢 No restriction'}\n"
                     f"Strikes: {len(strikes)}\n"
                     f"Scheduled media items: {len(media_log)}\n\n"
-                    f"**Recent audit entries:**\n"
                 )
-                for a in audit[:10]:
-                    body += f"`{a.get('created_at', '')[:16]}` — {a.get('action_type')}\n"
+                if audit:
+                    body += "**Recent moderation actions:**\n"
+                    for a in audit[:8]:
+                        body += f"`{a.get('created_at', '')[:16]}` — {a.get('action_type', '')}\n"
+                else:
+                    body += "_Koi moderation action nahi hai is user pe._"
+                await update.message.reply_text(body, reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown")
 
-            await update.message.reply_text(body, reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown")
         except ValueError:
-            await update.message.reply_text("❌ **Invalid User ID.**", parse_mode="Markdown")
+            await update.message.reply_text(
+                "❌ **Galat User ID.** Sirf number daalo jaise `123456789`",
+                reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown"
+            )
+        except Exception as e:
+            await update.message.reply_text(
+                f"❌ **Error:** {str(e)[:100]}",
+                reply_markup=get_moderation_panel_keyboard(), parse_mode="Markdown"
+            )
         context.user_data["state"] = None
         context.user_data.pop("mod_lookup_mode", None)
 
     elif state == "channel_add_id" and is_owner(user.id):
-
+    
         try:
             ch_id = int(text.strip())
-
-            # Fetch real title from Telegram right here
-            try:
-                chat = await context.bot.get_chat(ch_id)
-                chat_title = chat.title or str(ch_id)
-            except Exception:
-                chat_title = str(ch_id)  # fallback if bot not in chat yet
-
+    
             context.user_data["channel_id"] = ch_id
-            context.user_data["channel_name"] = chat_title
-
+    
             await update.message.reply_text(
-                f"✅ Found: **{chat_title}**\n\n"
                 "**Ab Invite Link bhejein**\n\n"
                 "Example:\n"
                 "`https://t.me/+abc123xyz`",
                 parse_mode="Markdown"
             )
-
+    
             context.user_data["state"] = "channel_add_link"
-
+    
         except:
             await update.message.reply_text(
-                "❌ Invalid ID. Sirf numeric ID bhejein (e.g. -1002390781736)"
+                "❌ Invalid Channel ID"
             )
-
-
+    
+    
     elif state == "channel_add_link" and is_owner(user.id):
-
+    
         try:
             invite_link = text.strip()
-
+    
             ch_id = context.user_data.get("channel_id")
-            ch_name = context.user_data.get("channel_name") or str(ch_id)
-            owner_type = context.user_data.get("adding_owner_type", "channel")
-            type_label = "Group" if owner_type == "group" else "Channel"
-
+    
+            
+    
             db.add_channel(
                 ch_id,
-                ch_name,
+                f"Channel {ch_id}",
                 invite_link,
                 user.id
             )
-
+                
             await update.message.reply_text(
-                f"✅ {type_label} Added:\n**{ch_name}**",
-                reply_markup=get_owner_panel(),
-                parse_mode="Markdown"
+                f"✅ Channel Added:\n{ch_id}",
+                reply_markup=get_owner_panel()
             )
-
+    
         except Exception as e:
             await update.message.reply_text(
                 f"❌ Error:\n{e}",
                 reply_markup=get_owner_panel()
             )
-
+    
         context.user_data.pop("channel_id", None)
-        context.user_data.pop("channel_name", None)
-        context.user_data.pop("adding_owner_type", None)
         context.user_data["state"] = None
     
 
@@ -1564,18 +1568,15 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
     
                 return
-
-            chat_type = context.user_data.get("adding_chat_type", "channel")
+    
             db.add_user_channel(
                 update.effective_user.id,
                 channel_id,
-                chat.title,
-                chat_type=chat_type
+                chat.title
             )
     
-            type_label = "Group" if chat_type == "group" else "Channel"
             await update.message.reply_text(
-                f"✅ {type_label} Added:\n{chat.title}"
+                f"✅ Added:\n{chat.title}"
             )
     
         except Exception as e:
@@ -1585,7 +1586,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
     
         context.user_data["state"] = None
-        context.user_data.pop("adding_chat_type", None)
     
 
     elif state == ADMIN_ADD and is_owner(user.id):
@@ -1838,6 +1838,8 @@ async def _file_copyright_report(update, context, reporter_id, scheduled_message
     )
     await update.message.reply_text(reply_text, parse_mode="Markdown")
 
+    report_id = report.get("id", "N/A") if isinstance(report, dict) else "N/A"
+
     # Notify owner + admins
     notify_text = (
         "🚨 Copyright Report Filed\n\n"
@@ -1846,7 +1848,7 @@ async def _file_copyright_report(update, context, reporter_id, scheduled_message
         f"Reason: {reason}\n"
         f"Reporter ID: {reporter_id}\n"
         f"Timestamp: {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC\n"
-        f"Report ID: {report['id'] if report else 'N/A'}"
+        f"Report ID: {report_id}"
     )
     recipients = {Config.OWNER_ID}
     for a in db.get_all_admins():

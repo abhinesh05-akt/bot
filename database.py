@@ -1,7 +1,7 @@
 import requests
 from config import Config
 import json
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 
 class Database:
     def __init__(self):
@@ -25,18 +25,29 @@ class Database:
 
     def _get(self, endpoint, params=None):
         r = requests.get(f"{self.rest_url}/{endpoint}", headers=self.headers, params=params)
-        return r.json() if r.status_code == 200 else []
+        if r.status_code == 200:
+            return r.json()
+        print(f"[DB ERROR] GET {endpoint} → {r.status_code}: {r.text[:200]}")
+        return []
 
     def _post(self, endpoint, data):
         r = requests.post(f"{self.rest_url}/{endpoint}", headers=self.headers, json=data)
-        return r.json() if r.status_code in [200, 201] else None
+        if r.status_code in [200, 201]:
+            return r.json()
+        print(f"[DB ERROR] POST {endpoint} → {r.status_code}: {r.text[:200]}")
+        return None
 
     def _patch(self, endpoint, data, params=None):
         r = requests.patch(f"{self.rest_url}/{endpoint}", headers=self.headers, json=data, params=params)
-        return r.json() if r.status_code in [200, 204] else None
+        if r.status_code in [200, 204]:
+            return r.json() if r.status_code == 200 else True
+        print(f"[DB ERROR] PATCH {endpoint} → {r.status_code}: {r.text[:200]}")
+        return None
 
     def _delete(self, endpoint, params=None):
         r = requests.delete(f"{self.rest_url}/{endpoint}", headers=self.headers, params=params)
+        if r.status_code not in [200, 204]:
+            print(f"[DB ERROR] DELETE {endpoint} → {r.status_code}: {r.text[:200]}")
         return r.status_code in [200, 204]
 
     # ========== USERS ==========
@@ -170,24 +181,6 @@ class Database:
     def get_user_scheduled_messages(self, user_id):
         return self._get(Config.TABLE_SCHEDULED_MSGS, {"user_id": f"eq.{user_id}"})
 
-    def get_user_active_scheduled_messages(self, user_id):
-        """Return all pending/failed messages + sent messages not yet 24h old."""
-        cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
-        all_msgs = self._get(Config.TABLE_SCHEDULED_MSGS, {"user_id": f"eq.{user_id}"})
-        return [
-            m for m in all_msgs
-            if m.get("status") in ("pending", "failed")
-            or (m.get("status") == "sent" and (m.get("schedule_time") or "") >= cutoff)
-        ]
-
-    def delete_old_sent_messages(self):
-        """Delete all 'sent' messages whose schedule_time is older than 24 hours."""
-        cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
-        return self._delete(
-            Config.TABLE_SCHEDULED_MSGS,
-            {"status": "eq.sent", "schedule_time": f"lt.{cutoff}"}
-        )
-
     def get_scheduled_message_by_id(self, msg_id):
         """Looks up a scheduled message by its own id, regardless of owner.
         Needed for copyright reports filed against someone else's schedule."""
@@ -244,15 +237,13 @@ class Database:
         self,
         user_id,
         channel_id,
-        channel_name,
-        chat_type="channel"
+        channel_name
     ):
         data = {
             "user_id": user_id,
             "channel_id": channel_id,
             "channel_name": channel_name,
             "auto_approve": True,
-            "chat_type": chat_type,
             "created_at": datetime.utcnow().isoformat()
         }
     
@@ -400,7 +391,7 @@ class Database:
         return result[0] if result else None
 
     def get_all_reports(self):
-        return self._get(f"{Config.TABLE_COPYRIGHT_REPORTS}?order=created_at.desc")
+        return self._get(Config.TABLE_COPYRIGHT_REPORTS, {"order": "created_at.desc"})
 
     def get_report(self, report_id):
         data = self._get(Config.TABLE_COPYRIGHT_REPORTS, {"id": f"eq.{report_id}"})
@@ -432,8 +423,6 @@ class Database:
 
     # ========== COPYRIGHT: AUDIT LOG ==========
     def add_audit_log(self, action_type, actor_id, target_user_id, details=""):
-        """action_type: 'report' | 'content_removal' | 'warning' | 'restriction' |
-        'ban' | 'unban' | 'strike_reset'"""
         data = {
             "action_type": action_type,
             "actor_id": actor_id,
@@ -444,7 +433,7 @@ class Database:
         self._post(Config.TABLE_AUDIT_LOG, data)
 
     def get_audit_log(self, limit=50):
-        data = self._get(f"{Config.TABLE_AUDIT_LOG}?order=created_at.desc&limit={limit}")
+        data = self._get(Config.TABLE_AUDIT_LOG, {"order": "created_at.desc", "limit": limit})
         return data if isinstance(data, list) else []
 
     def get_user_audit_log(self, user_id):
