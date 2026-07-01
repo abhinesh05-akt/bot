@@ -1781,49 +1781,48 @@ async def menu_command(update, context):
 
 # ========== COPYRIGHT REPORT COMMAND ==========
 async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Usage: /report <scheduled_message_id> <reason>
-    Looks up the scheduled message to find who it belongs to, then files
-    a copyright_reports row and notifies the owner/admins."""
     user = update.effective_user
     if db.is_user_banned(user.id):
         await update.message.reply_text("You are permanently banned from using this bot.")
         return
 
-    args = context.args if hasattr(context, "args") else []
+    args = context.args if context.args else []
     if not args:
         await update.message.reply_text(
-            "**Usage:** `/report <schedule_id> <reason>`\n\n"
-            "Example: `/report 42 Pocket FM audiobook content uploaded without permission`\n\n"
-            "Find the schedule_id from **My Scheduled** in the main menu.",
-            parse_mode="Markdown"
+            "🚨 Report Usage:\n\n"
+            "/report <schedule_id> <reason>\n\n"
+            "Example:\n"
+            "/report 42 Pocket FM audiobook bina permission ke upload kiya\n\n"
+            "Schedule ID 'My Scheduled' menu se milega."
         )
         return
 
     try:
         scheduled_message_id = int(args[0])
     except ValueError:
-        await update.message.reply_text("❌ **schedule_id must be a number.** Use: `/report <schedule_id> <reason>`", parse_mode="Markdown")
+        await update.message.reply_text(
+            "❌ Schedule ID galat hai — sirf number hona chahiye.\n"
+            "Example: /report 42 reason yahan likho"
+        )
         return
 
     reason = " ".join(args[1:]).strip()
     if not reason:
-        await update.message.reply_text("❌ **Reason zaroori hai.** Use: `/report <schedule_id> <reason>`", parse_mode="Markdown")
+        await update.message.reply_text(
+            "❌ Reason zaroori hai.\n"
+            "Example: /report 42 Pocket FM audiobook bina permission ke"
+        )
         return
 
     await _file_copyright_report(update, context, user.id, scheduled_message_id, reason)
 
 
 async def _file_copyright_report(update, context, reporter_id, scheduled_message_id, reason):
-    """Called from /report and from the REPORT_REASON text-state handler
-    (which itself is reached via the inline 'Report' button). Both callers
-    pass a real Update with a .message — there is no callback-query path here."""
     reported_user_id = None
     media_entry = db.get_media_log_by_schedule_id(scheduled_message_id)
     if media_entry:
         reported_user_id = media_entry.get("user_id")
     else:
-        # Fall back to looking up the schedule directly (works regardless
-        # of who owns it — needed for third-party reports, not just self-reports)
         match = db.get_scheduled_message_by_id(scheduled_message_id)
         if match:
             reported_user_id = match.get("user_id")
@@ -1832,15 +1831,17 @@ async def _file_copyright_report(update, context, reporter_id, scheduled_message
     db.add_audit_log("report", reporter_id, reported_user_id,
                       f"schedule_id={scheduled_message_id} | {reason}")
 
+    # Plain text — no parse_mode — reason is raw user input and will break
+    # Telegram's Markdown parser if it contains _, *, `, or [ characters
     reply_text = (
-        "🚨 **Report filed.** Owner/admins have been notified.\n\n"
-        f"Schedule ID: `{scheduled_message_id}`\nReason: {reason}"
+        "🚨 Report filed. Owner/admins ko notify kar diya gaya.\n\n"
+        f"Schedule ID: {scheduled_message_id}\n"
+        f"Reason: {reason}"
     )
-    await update.message.reply_text(reply_text, parse_mode="Markdown")
+    await update.message.reply_text(reply_text)
 
     report_id = report.get("id", "N/A") if isinstance(report, dict) else "N/A"
 
-    # Notify owner + admins
     notify_text = (
         "🚨 Copyright Report Filed\n\n"
         f"Reported User ID: {reported_user_id or 'Unknown'}\n"
